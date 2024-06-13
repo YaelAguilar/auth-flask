@@ -1,0 +1,112 @@
+(Aquí está como un monilito, creo que la version con segregacion de responsabilidades tiene unas funcionalidades extra, pero este igual cumple con lo basico)
+
+from flask import Flask, request, jsonify
+from flask_sqlalchemy import SQLAlchemy
+from werkzeug.security import generate_password_hash, check_password_hash
+import jwt
+import datetime
+from dotenv import load_dotenv
+import os
+import re
+import pymysql
+from functools import wraps
+
+pymysql.install_as_MySQLdb()
+
+load_dotenv()  # Carga las variables de entorno
+
+app = Flask(__name__)
+app.config['SECRET_KEY'] = os.getenv('SECRET_KEY', 'tu_clave_secreta_default')
+# Asegúrate de reemplazar los valores de usuario, contraseña, host, puerto y nombre_db con tus credenciales reales de Railway
+app.config['SQLALCHEMY_DATABASE_URI'] = os.getenv('DATABASE_URL', 'mysql+pymysql://root:ubVVNEnyKLmUBBewBFRnKZIlLGOzDfxX@monorail.proxy.rlwy.net:23781/railway')
+app.config['SQLALCHEMY_TRACK_MODIFICATIONS'] = False
+db = SQLAlchemy(app)
+
+class Usuario(db.Model):
+    id = db.Column(db.Integer, primary_key=True)
+    nombre = db.Column(db.String(50), nullable=False)
+    correo = db.Column(db.String(50), unique=True, nullable=False)
+    contraseña_hash = db.Column(db.String(256), nullable=False)  # Aumenta la longitud a 256
+
+def token_requerido(f):
+    @wraps(f)
+    def decorador(*args, **kwargs):
+        token = None
+        if 'Authorization' in request.headers:
+            token = request.headers['Authorization'].split(" ")[1]  # Bearer <token>
+        
+        if not token:
+            return jsonify({'mensaje': 'Token es requerido'}), 401
+        
+        try:
+            datos = jwt.decode(token, app.config['SECRET_KEY'], algorithms=['HS256'])
+            usuario_actual = Usuario.query.filter_by(correo=datos['correo']).first()
+        except Exception as e:
+            return jsonify({'mensaje': 'Token es inválido', 'error': str(e)}), 401
+        
+        return f(usuario_actual, *args, **kwargs)
+    
+    return decorador
+
+@app.route('/register', methods=['POST'])
+def register():
+    datos = request.json
+    nombre = datos.get('nombre')
+    correo = datos.get('correo')
+    contraseña = datos.get('contraseña')
+
+    if not correo or not contraseña:
+        return jsonify({'mensaje': 'Datos faltantes'}), 400
+    if not re.match(r"[^@]+@[^@]+\.[^@]+", correo):
+        return jsonify({'mensaje': 'Formato de correo inválido'}), 400
+    if len(contraseña) < 8:
+        return jsonify({'mensaje': 'La contraseña debe tener al menos 8 caracteres'}), 400
+
+    usuario_existente = Usuario.query.filter_by(correo=correo).first()
+    if usuario_existente:
+        return jsonify({'mensaje': 'El usuario ya existe'}), 400
+
+    contraseña_hash = generate_password_hash(contraseña)
+    nuevo_usuario = Usuario(nombre=nombre, correo=correo, contraseña_hash=contraseña_hash)
+    db.session.add(nuevo_usuario)
+    db.session.commit()
+
+    payload = {
+        'correo': correo,
+        'exp': datetime.datetime.utcnow() + datetime.timedelta(days=7)
+    }
+    token = jwt.encode(payload, app.config['SECRET_KEY'], algorithm='HS256')
+
+    return jsonify({'mensaje': 'Usuario registrado exitosamente', 'token': token}), 201
+
+@app.route('/login', methods=['POST'])
+def login():
+    datos = request.json
+    correo = datos.get('correo')
+    contraseña = datos.get('contraseña')
+
+    usuario = Usuario.query.filter_by(correo=correo).first()
+    
+    if usuario and check_password_hash(usuario.contraseña_hash, contraseña):
+        payload = {
+            'correo': correo,
+            'exp': datetime.datetime.utcnow() + datetime.timedelta(days=7)
+        }
+        token = jwt.encode(payload, app.config['SECRET_KEY'], algorithm='HS256')
+        return jsonify({'mensaje': 'Inicio de sesión exitoso', 'token': token}), 200
+    else:
+        return jsonify({'mensaje': 'Credenciales inválidas'}), 401
+
+@app.route('/public')
+def public_route():
+    return jsonify({'mensaje': 'Esta es una ruta pública'})
+
+@app.route('/protected')
+@token_requerido
+def protected_route(usuario_actual):
+    return jsonify({'mensaje': 'Esta es una ruta protegida', 'usuario': usuario_actual.nombre})
+
+if __name__ == '__main__':
+    with app.app_context():
+        db.create_all()
+    app.run(debug=True)
