@@ -1,5 +1,5 @@
 from flask import request, jsonify
-from app import db
+from ejemplo import db
 from app.models import Usuario
 from app.auth import generar_token
 from werkzeug.security import generate_password_hash, check_password_hash

@@ -17,7 +17,7 @@ def create_app():
     db.init_app(app)
 
     with app.app_context():
-        from app import routes, models  # Importar modelos y rutas aquí para evitar importaciones circulares
+        from ejemplo import routes, models  # Importar modelos y rutas aquí para evitar importaciones circulares
         db.create_all()
         print("Base de datos inicializada")
 

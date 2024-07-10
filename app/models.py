@@ -1,4 +1,4 @@
-from app import db
+from ejemplo import db
 
 # Modelo de la tabla Usuario
 class Usuario(db.Model):

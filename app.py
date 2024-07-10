@@ -1,4 +1,4 @@
-from app import create_app
+from ejemplo import create_app
 
 #Archivo principal de la aplicación
 app = create_app()
